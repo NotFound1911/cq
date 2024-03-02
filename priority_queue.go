@@ -29,7 +29,7 @@ func (p *PriorityQueue[T]) IsBoundless() bool {
 }
 
 func (p *PriorityQueue[T]) isFull() bool {
-	return p.cap > 0 && len(p.data) == p.cap
+	return p.cap > 0 && len(p.data)-1 == p.cap
 }
 
 func (p *PriorityQueue[T]) isEmpty() bool {
@@ -41,7 +41,7 @@ func (p *PriorityQueue[T]) Peek() (T, error) {
 		var t T
 		return t, ErrEmptyQueue
 	}
-	return p.data[0], nil
+	return p.data[1], nil
 }
 
 // heapifyUp 向上移动
@@ -92,6 +92,7 @@ func (p *PriorityQueue[T]) Dequeue() (T, error) {
 	pop := p.data[1]
 	// 将最小元素放入末尾
 	p.data[1], p.data[len(p.data)-1] = p.data[len(p.data)-1], p.data[1]
+	p.data = p.data[:len(p.data)-1]
 	p.heapifyDown(1)
 	return pop, nil
 }

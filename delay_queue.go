@@ -2,6 +2,7 @@ package cq
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -30,6 +31,7 @@ func NewDelayQueue[T Delayable](c int) *DelayQueue[T] {
 	res := &DelayQueue[T]{
 		mutex:         m,
 		enqueueSignal: make(chan struct{}, c),
+		dequeueSignal: make(chan struct{}, c),
 		q: NewPriorityQueue[T](c, func(src T, dst T) int {
 			srcDelay := src.Delay()
 			dstDelay := dst.Delay()
@@ -58,24 +60,21 @@ func (d *DelayQueue[T]) In(ctx context.Context, val T) error {
 			return ctx.Err()
 		}
 	}
-	// 获取队列中最靠前的元素（即延迟时间最短的元素）
-	first, err := d.q.Peek()
-	if err != nil {
-		d.mutex.Unlock()
-		return err
-	}
 	d.q.Enqueue(val)
 	d.mutex.Unlock()
-	if val.Delay() < first.Delay() {
-		close(d.enqueueSignal)
-	}
+	d.enqueueSignal <- struct{}{}
 	return nil
 }
+
+// Out 方法从DelayQueue中尝试取出一个元素。
+// 如果元素的延迟时间到达，则返回该元素。
+// 如果在等待过程中上下文被取消，则返回错误。
 func (d *DelayQueue[T]) Out(ctx context.Context) (T, error) {
 	if ctx.Err() != nil {
 		var t T
 		return t, ctx.Err()
 	}
+	// 定义一个计时器，用于等待元素的延迟时间
 	var timer *time.Timer
 	for {
 		d.mutex.Lock()
@@ -84,9 +83,40 @@ func (d *DelayQueue[T]) Out(ctx context.Context) (T, error) {
 		switch err {
 		case nil:
 			// 拿到了元素
+			// 获取该元素的延迟时间
 			delay := first.Delay()
+			// 如果延迟时间小于等于0，说明该元素不需要等待，可以直接取出
 			if delay <= 0 {
-
+				d.mutex.Lock()
+				first, err := d.q.Peek() // 二次确认
+				if err != nil {
+					d.mutex.Unlock()
+					continue
+				}
+				if first.Delay() <= 0 {
+					first, err = d.q.Dequeue() // 如果确实小于等于0，则从队列中取出该元素
+					d.mutex.Unlock()
+					// 出队
+					d.dequeueSignal <- struct{}{}
+					return first, err
+				}
+				d.mutex.Unlock()
+			}
+			if timer == nil {
+				timer = time.NewTimer(delay)
+			} else {
+				timer.Stop()
+				timer.Reset(delay)
+			}
+			select {
+			case <-timer.C:
+				// 元素到期 进入下一个循环
+			case <-d.enqueueSignal:
+				// 来了新元素 进入下一个循环
+				fmt.Println("enqueueSignal")
+			case <-ctx.Done():
+				var t T
+				return t, ctx.Err()
 			}
 		case ErrEmptyQueue:
 			// 阻塞，等待新元素或报错
