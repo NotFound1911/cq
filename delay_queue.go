@@ -2,7 +2,6 @@ package cq
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 )
@@ -112,8 +111,7 @@ func (d *DelayQueue[T]) Out(ctx context.Context) (T, error) {
 			case <-timer.C:
 				// 元素到期 进入下一个循环
 			case <-d.enqueueSignal:
-				// 来了新元素 进入下一个循环
-				fmt.Println("enqueueSignal")
+				// 来了新元素 进入下一个循环`
 			case <-ctx.Done():
 				var t T
 				return t, ctx.Err()
